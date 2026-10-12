@@ -54,27 +54,33 @@
 2. 选择配置 `Debug | Win32`。
 3. 按 `F5` 运行（或 `Ctrl+Shift+B` 生成）。
 
-> 生成产物输出到 `Tetris/Tetris/Win32/Debug/Tetris.exe`。
+> 生成产物输出到 `Tetris/Win32/Debug/Tetris.exe`。
 > 也可以直接用 `MSBuild.exe Tetris.sln -p:Configuration=Debug -p:Platform=Win32` 命令行编译。
 > "最高分存档" `highscore.dat` 会在首次刷新纪录时自动生成在 exe 所在目录，无需手动创建。
 
 **直接运行**
 
-双击 `Tetris/Tetris/Win32/Debug/Tetris.exe`，先在对话框中选难度即可开始。
+双击 `Tetris/Win32/Debug/Tetris.exe`，先在对话框中选难度即可开始。
 
 ## 目录结构
 
 ```
-.
-├─ Tetris.sln                      解决方案
-├─ Tetris/Tetris/
-│  ├─ Tetris.cpp / Tetris.h        程序入口、窗口与消息处理
-│  ├─ TetrisLogic.cpp              游戏逻辑（方块、消行、道具、计分、存档）
-│  ├─ TetrisRender.cpp             渲染与音效
-│  ├─ stdafx.h / stdafx.cpp / targetver.h
-│  ├─ Tetris.rc / resource.h       资源脚本与 ID 定义
-│  └─ *.bmp / *.wav / *.ico        贴图、音效、图标素材
-└─ README.md
+俄罗斯方块大作业/俄罗斯奶块/
+├─ README.md
+├─ .gitignore
+└─ Tetris/
+   ├─ Tetris.sln                    解决方案
+   ├─ Tetris.vcxproj                工程文件
+   ├─ src/                          源码
+   │  ├─ Tetris.cpp / Tetris.h      程序入口、窗口与消息处理
+   │  ├─ TetrisLogic.cpp            游戏逻辑（方块、消行、道具、计分、存档）
+   │  ├─ TetrisRender.cpp           渲染与音效
+   │  ├─ stdafx.h / stdafx.cpp / targetver.h
+   │  └─ resource.h                 资源 ID 定义
+   └─ res/                          资源
+      ├─ Tetris.rc                  资源脚本
+      ├─ Tetris.ico / small.ico     图标
+      └─ *.bmp / *.wav              贴图与音效
 ```
 
 ## 素材说明
