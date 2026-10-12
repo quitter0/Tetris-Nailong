@@ -1,0 +1,43 @@
+# ============================================================
+#  Visual Studio 的自动生成产物 / 用户本机状态（不该进仓库）
+# ============================================================
+
+# --- 用户状态与智能感知数据库 ---
+.vs/
+*.suo
+*.user
+*.sdf
+*.opendb
+*.VC.db
+*.VC.VC.opendb
+ipch/
+
+# --- 资源编辑器缓存 / 资源编译器临时文件 ---
+*.aps
+*.rc2
+RCa*
+
+# --- 编译输出 ---
+[Dd]ebug/
+[Rr]elease/
+x64/
+Win32/
+*.obj
+*.exe
+*.ilk
+*.pdb
+*.idb
+*.res
+*.tlog
+*.lastbuildstate
+*.log
+*.FileListAbsolute.txt
+
+# --- 运行期数据（最高分存档，因人而异） ---
+highscore.dat
+
+# --- 编辑器 / 系统杂项 ---
+.claude/settings.local.json
+Thumbs.db
+Desktop.ini
+*.svn
