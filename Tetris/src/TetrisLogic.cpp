@@ -136,13 +136,7 @@ int maxCombo = 0;             // 本局最大连击数
 bool comboActive = false;     // 是否处于连击状态
 
 // ---------- 道具系统 ----------
-#define ITEM_NONE            0
-#define ITEM_CLEAR_BOTTOM    1  // 消除底层
-#define ITEM_SLOW            2  // 减速
-#define ITEM_DOUBLE_SCORE    3  // 得分双倍
-
-#define TIMER_ID_DROP   1
-#define TIMER_ID_ITEM   2
+// ITEM_* 与 TIMER_ID_* 宏定义统一在 Tetris.h，此处不再重复
 
 int currentItem = ITEM_NONE;
 int itemDuration = 0;
@@ -154,8 +148,8 @@ int dropInterval = 500;       // 下落间隔（毫秒）
 
 // ---------- 特殊方块类型编号 ----------
 #define EASY_BRICK_TYPES 7    // 总共7种简单方块类型
-#define BOMB_TYPE  14         // 炸弹方块在bricks中的索引
 #define TOTAL_BRICK_TYPES 15  // 总共15种方块类型
+// BOMB_TYPE 宏定义统一在 Tetris.h，此处不再重复
 
 // ---------- 生成随机方块类型 ----------
 int RandomBrickType()

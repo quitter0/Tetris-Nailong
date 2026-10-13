@@ -4,15 +4,7 @@
 #include "Tetris.h"
 #include <mmsystem.h>
 
-// 对话框资源ID
-#define IDD_DIFFICULTY_DLG    301
-#define IDC_RADIO_EASY        302
-#define IDC_RADIO_NORMAL      303
-#define IDC_RADIO_HARD        304
-
-// 计时器ID
-#define TIMER_ID_DROP   1
-#define TIMER_ID_ITEM   2
+// 对话框资源ID 见 resource.h，计时器ID 见 Tetris.h，此处不再重复定义
 
 // 对话框过程声明
 INT_PTR CALLBACK DifficultyDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
@@ -261,6 +253,75 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     return TRUE;
 }
 
+// 当前方块落定时的统一处理：固定方块 → 炸弹/消行/连击结算 → 游戏结束判定 → 刷新瞄准器与画面。
+// 原先 WM_TIMER（自然下落到底）与 VK_SPACE（空格直落）两处逐字重复，此处置于一处避免逻辑漂移。
+static void LockCurrentBrick(HWND hWnd)
+{
+    int oldType = type;        // 保存固定前的方块类型/状态/位置
+    int oldState = state;
+    Point oldPoint = point;
+    Fixing();                  // 固定并生成下一块（type 此时已变为下一个）
+
+    if (oldType == BOMB_TYPE)
+    {
+        // 查找炸弹方块的第一个有效格子作为爆炸中心
+        bool bombFound = false;
+        int bombRow = 0, bombCol = 0;
+        for (int i = 0; i < 4 && !bombFound; i++)
+        {
+            for (int j = 0; j < 4; j++)
+            {
+                if (bricks[oldType][oldState][i][j] != 0)
+                {
+                    bombRow = oldPoint.y + i;
+                    bombCol = oldPoint.x + j;
+                    bombFound = true;
+                    break;
+                }
+            }
+        }
+        if (bombFound)
+            BombExplode(bombRow, bombCol);
+
+        DeleteLines();         // 爆炸后处理产生的空行
+    }
+    else
+    {
+        // 普通方块的消行统计与连击
+        int linesCleared = 0;
+        for (int i = 0; i < nGameHeight; i++)
+        {
+            bool full = true;
+            for (int j = 0; j < nGameWidth; j++)
+            {
+                if (workRegion[i][j] == 0)
+                {
+                    full = false;
+                    break;
+                }
+            }
+            if (full) linesCleared++;
+        }
+        DeleteLines();
+
+        if (linesCleared > 0)
+            IncreaseCombo();
+        else
+            ResetCombo();
+    }
+
+    if (GameOver())
+    {
+        gameOverFlag = true;
+        KillTimer(hWnd, TIMER_ID_DROP);
+        StopBGM();
+        SaveHighScore();
+    }
+
+    if (targetFlag) ComputeTarget();
+    InvalidateRect(hWnd, NULL, FALSE);
+}
+
 //
 //  函数: WndProc(HWND, UINT, WPARAM, LPARAM)
 //
@@ -282,61 +343,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
             else
             {
-                // 无法下落，固定方块
-                int oldType = type;
-                int oldState = state;
-                Point oldPoint = point;
-                Fixing();                     // 固定并生成下一块
-
-                // 处理炸弹
-                if (oldType == BOMB_TYPE)
-                {
-                    bool bombFound = false;
-                    int bombRow = 0, bombCol = 0;
-                    for (int i = 0; i < 4 && !bombFound; i++)
-                    {
-                        for (int j = 0; j < 4; j++)
-                        {
-                            if (bricks[oldType][oldState][i][j] != 0)
-                            {
-                                bombRow = oldPoint.y + i;
-                                bombCol = oldPoint.x + j;
-                                bombFound = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (bombFound) BombExplode(bombRow, bombCol);
-                    DeleteLines();
-                }
-                else
-                {
-                    int linesCleared = 0;
-                    for (int i = 0; i < nGameHeight; i++)
-                    {
-                        bool full = true;
-                        for (int j = 0; j < nGameWidth; j++)
-                            if (workRegion[i][j] == 0) { full = false; break; }
-                        if (full) linesCleared++;
-                    }
-                    DeleteLines();
-                    if (linesCleared > 0)
-                    {
-                        IncreaseCombo();
-                    }
-                    else ResetCombo();
-                }
-
-                if (GameOver())
-                {
-                    gameOverFlag = true;
-                    KillTimer(hWnd, TIMER_ID_DROP);
-                    StopBGM();
-                    SaveHighScore();
-                }
-
-                if (targetFlag) ComputeTarget();
-                InvalidateRect(hWnd, NULL, FALSE);
+                LockCurrentBrick(hWnd);       // 无法下落，固定方块并结算
             }
         }
         // 道具计时器
@@ -344,11 +351,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         {
             UpdateItem();
         }
-        break;
-    }
-    case WM_CREATE:
-    {
-        // 窗口创建时的初始化（Restart在InitInstance中已调用）
         break;
     }
     case WM_KEYDOWN:
@@ -414,74 +416,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if (!gameOverFlag)
             {
                 DropDown();                    // 直接落到底部
-
-                int oldType = type;            // 保存当前方块类型
-                int oldState = state;
-                Point oldPoint = point;
-                Fixing();                      // 固定（此时 type 已经变成下一个）
-
-                if (oldType == BOMB_TYPE)
-                {
-                    // 查找炸弹方块的第一个有效格子作为爆炸中心
-                    bool bombFound = false;
-                    int bombRow = 0, bombCol = 0;
-                    for (int i = 0; i < 4 && !bombFound; i++)
-                    {
-                        for (int j = 0; j < 4; j++)
-                        {
-                            if (bricks[oldType][oldState][i][j] != 0)
-                            {
-                                bombRow = oldPoint.y + i;
-                                bombCol = oldPoint.x + j;
-                                bombFound = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (bombFound)
-                        BombExplode(bombRow, bombCol);
-
-                    DeleteLines();             // 爆炸后处理产生的空行
-                }
-                else
-                {
-                    // 普通方块的消行统计和连击
-                    int linesCleared = 0;
-                    for (int i = 0; i < nGameHeight; i++)
-                    {
-                        bool full = true;
-                        for (int j = 0; j < nGameWidth; j++)
-                        {
-                            if (workRegion[i][j] == 0)
-                            {
-                                full = false;
-                                break;
-                            }
-                        }
-                        if (full) linesCleared++;
-                    }
-                    DeleteLines();
-
-                    if (linesCleared > 0)
-                    {
-                        IncreaseCombo();
-                    }
-                    else
-                    {
-                        ResetCombo();
-                    }
-                }
-
-                if (GameOver())
-                {
-                    gameOverFlag = true;
-                    KillTimer(hWnd, TIMER_ID_DROP);
-                    StopBGM();
-                    SaveHighScore();
-                }
-
-                if (targetFlag) ComputeTarget();
-                InvalidateRect(hWnd, NULL, FALSE);
+                LockCurrentBrick(hWnd);        // 固定方块并结算（与自然下落到底共用逻辑）
             }
             break;
             // 暂停键（P键）

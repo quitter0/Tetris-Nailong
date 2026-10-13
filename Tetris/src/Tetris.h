@@ -101,5 +101,9 @@ extern HWND g_hWndMain;
 #define ITEM_SLOW            2
 #define ITEM_DOUBLE_SCORE    3
 
+// 计时器ID（主窗口与逻辑模块共用，统一定义在此）
+#define TIMER_ID_DROP   1
+#define TIMER_ID_ITEM   2
+
 // 特殊方块类型宏定义
 #define BOMB_TYPE  14
