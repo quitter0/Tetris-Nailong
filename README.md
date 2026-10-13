@@ -80,6 +80,7 @@ MSBuild.exe Tetris.sln -t:Rebuild -p:Configuration=Release -p:Platform=Win32
 俄罗斯方块大作业/俄罗斯奶块/
 ├─ README.md
 ├─ 使用说明.txt                     面向玩家的快速上手说明
+├─ LICENSE                          MIT 开源许可
 ├─ .gitignore
 └─ Tetris/
    ├─ Tetris.sln                    解决方案
@@ -103,3 +104,9 @@ MSBuild.exe Tetris.sln -t:Rebuild -p:Configuration=Release -p:Platform=Win32
 - 图标：`Tetris.ico`、`small.ico`
 
 所有素材均以资源形式编入 exe，运行时不依赖外部文件。
+
+> 「奶龙」主题贴图与音频版权归原作者所有，此处仅用于学习交流，不在本项目开源许可范围内。
+
+## 许可
+
+本项目**代码**以 [MIT 许可证](LICENSE) 开源。游戏内使用的第三方主题素材（见上）版权归其原作者，不适用 MIT 许可。
