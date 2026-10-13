@@ -66,7 +66,7 @@ void TDrawScreen(HDC hdc, HWND hWnd)
 
 
         // 定义网格参数
-    const int blockSize = 30;          // 每个方块像素大小
+    const int blockSize = BLOCK_SIZE;  // 每个方块像素大小
     const int startX = 50;             // 工作区左偏移
     const int startY = 50;             // 工作区上偏移
     const int nextStartX = startX + 10 * blockSize + 150;  // 下一个方块显示区X
@@ -314,6 +314,45 @@ void TDrawScreen(HDC hdc, HWND hWnd)
 }
 
 // ---------- 贴图相关实现 ----------
+
+// 用 HALFTONE 采样把贴图缩放到指定尺寸，返回新位图（原图被释放）。
+// 方块贴图 521x520、炸弹贴图 2000x2095，若绘制时直接用默认的最近邻采样
+// 缩到 30x30（缩 17~67 倍）会严重锯齿/丢细节，故在加载阶段一次性高质量缩放，
+// 绘制时即 1:1 贴图——与背景优化同一思路。
+static HBITMAP ScaleBitmap(HBITMAP src, int width, int height)
+{
+    if (src == NULL)
+        return NULL;
+
+    BITMAP bm;
+    GetObject(src, sizeof(bm), &bm);
+    if (bm.bmWidth == width && bm.bmHeight == height)
+        return src;
+
+    // 两个 GDI 陷阱，任一处写错贴图都会变灰：
+    // 1) 目的位图要用真正的屏幕 DC 作模板——CreateCompatibleDC(NULL) 初始选中的是
+    //    1x1 单色位图，拿它 CreateCompatibleBitmap 只能得到 1bpp 单色位图；
+    // 2) 源位图要选进一个内存 DC，不能直接选进屏幕 DC，否则 StretchBlt 会破坏颜色。
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+    HDC hdcSrc = CreateCompatibleDC(hdcScreen);
+    HBITMAP dst = CreateCompatibleBitmap(hdcScreen, width, height);
+    HBITMAP hOldSrc = (HBITMAP)SelectObject(hdcSrc, src);
+    HBITMAP hOldDst = (HBITMAP)SelectObject(hdcMem, dst);
+
+    SetStretchBltMode(hdcMem, HALFTONE);
+    SetBrushOrgEx(hdcMem, 0, 0, NULL);
+    StretchBlt(hdcMem, 0, 0, width, height, hdcSrc, 0, 0, bm.bmWidth, bm.bmHeight, SRCCOPY);
+
+    SelectObject(hdcMem, hOldDst);
+    SelectObject(hdcSrc, hOldSrc);
+    DeleteDC(hdcSrc);
+    DeleteDC(hdcMem);
+    ReleaseDC(NULL, hdcScreen);
+    DeleteObject(src);
+    return dst;
+}
+
 void LoadBrickBitmaps(HINSTANCE hInstance)
 {
     // 定义15个资源ID，请根据实际资源编号修改
@@ -330,7 +369,11 @@ void LoadBrickBitmaps(HINSTANCE hInstance)
         if (g_hBrickBitmaps[i])
             DeleteObject(g_hBrickBitmaps[i]);
         if (resIds[i] != 0)
+        {
             g_hBrickBitmaps[i] = LoadBitmap(hInstance, MAKEINTRESOURCE(resIds[i]));
+            if (g_hBrickBitmaps[i] != NULL)
+                g_hBrickBitmaps[i] = ScaleBitmap(g_hBrickBitmaps[i], BLOCK_SIZE, BLOCK_SIZE);
+        }
         if (g_hBrickBitmaps[i] == NULL)
             allLoaded = false;
     }

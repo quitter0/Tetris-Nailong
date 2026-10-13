@@ -7,6 +7,7 @@
 #pragma comment(lib, "winmm.lib")
 
 constexpr int GRID = 35;
+constexpr int BLOCK_SIZE = 30;       // 单个方块在屏幕上的像素边长
 constexpr int nGameWidth = 15;
 constexpr int nGameHeight = 25;
 constexpr int nWidth = 20;
