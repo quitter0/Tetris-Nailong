@@ -84,6 +84,7 @@ TCHAR szTitle[MAX_LOADSTRING];                  // 标题栏文本
 TCHAR szWindowClass[MAX_LOADSTRING];            // 主窗口类名
 HBITMAP g_hBackgroundBitmap = NULL;             // 定义背景贴图
 HBITMAP g_hEndBitmap = NULL;                    // 定义游戏结束贴图
+HACCEL  g_hAccel = NULL;                         // 菜单快捷键表（IDC_TETRIS）
 
 // 此代码模块中包含的函数的前向声明:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -115,12 +116,15 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
         return FALSE;
     }
 
-    // 主消息循环:
+    // 主消息循环:（先经菜单快捷键表翻译，未命中再常规派发）
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0))
     {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
+        if (!TranslateAccelerator(g_hWndMain, g_hAccel, &msg))
+        {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
     }
 
     return (int)msg.wParam;
@@ -228,6 +232,9 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
     g_hWndMain = hWnd;
 
+    // 加载菜单快捷键表（Alt+? / Alt+/ → 关于）
+    g_hAccel = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_TETRIS));
+
     // 加载方块贴图（可选）
     LoadBrickBitmaps(hInstance);
 
@@ -327,6 +334,36 @@ static void LockCurrentBrick(HWND hWnd)
     InvalidateRect(hWnd, NULL, FALSE);
 }
 
+// 开始/重开新局：停旧定时器 → 复位 → 重启下落定时器 → 背景音乐 → 重绘。
+// R 键与菜单“新游戏”共用（原先 R 只在游戏结束后生效）。
+static void StartNewGame(HWND hWnd)
+{
+    KillTimer(hWnd, TIMER_ID_DROP);
+    Restart();
+    SetTimer(hWnd, TIMER_ID_DROP, dropInterval, NULL);
+    PlayBGM();
+    InvalidateRect(hWnd, NULL, FALSE);
+}
+
+// 暂停/继续切换（P 键与菜单“暂停/继续”共用）
+static void TogglePause(HWND hWnd)
+{
+    if (gameOverFlag) return;       // 结束后不进入暂停
+    suspendFlag = !suspendFlag;
+    if (suspendFlag)
+        KillTimer(hWnd, TIMER_ID_DROP);
+    else
+        SetTimer(hWnd, TIMER_ID_DROP, dropInterval, NULL);
+    InvalidateRect(hWnd, NULL, FALSE);
+}
+
+// 从菜单重新选择难度：弹难度对话框 → 应用 → 以新难度重开
+static void ChooseDifficulty(HWND hWnd)
+{
+    difficultyLevel = ShowStartDialog(hInst, hWnd);
+    StartNewGame(hWnd);
+}
+
 //
 //  函数: WndProc(HWND, UINT, WPARAM, LPARAM)
 //
@@ -360,18 +397,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     }
     case WM_KEYDOWN:
     {
+        // R 键任意时刻都可重新开始（进行中也可，与菜单“新游戏”一致）
+        if (wParam == 'R')
+        {
+            StartNewGame(hWnd);
+            break;
+        }
+
         if (gameOverFlag)
         {
-            // 游戏结束后按R重新开始
-            if (wParam == 'R')
-            {
-                KillTimer(hWnd, TIMER_ID_DROP);   // 先停止旧定时器
-                Restart();
-                SetTimer(hWnd, TIMER_ID_DROP, dropInterval, NULL);
-                PlayBGM();
-                InvalidateRect(hWnd, NULL, FALSE);
-            }
-            break;
+            break;   // 结束后除 R 键外不再响应
         }
 
         if (suspendFlag && wParam != 'P')
@@ -426,16 +461,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             break;
             // 暂停键（P键）
         case 'P':
-            suspendFlag = !suspendFlag;
-            if (suspendFlag)
-            {
-                KillTimer(hWnd, TIMER_ID_DROP);
-            }
-            else
-            {
-                SetTimer(hWnd, TIMER_ID_DROP, dropInterval, NULL);
-            }
-            InvalidateRect(hWnd, NULL, FALSE);
+            TogglePause(hWnd);
             break;
 
             // 切换瞄准器（T键）
@@ -458,6 +484,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             ActivateItem(ITEM_DOUBLE_SCORE);
             InvalidateRect(hWnd, NULL, FALSE);
             break;
+        }
+        break;
+    }
+
+    case WM_COMMAND:
+    {
+        switch (LOWORD(wParam))
+        {
+        case IDM_NEWGAME:    StartNewGame(hWnd);     break;
+        case IDM_PAUSE:      TogglePause(hWnd);      break;
+        case IDM_DIFFICULTY: ChooseDifficulty(hWnd); break;
+        case IDM_ABOUT:      DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About); break;
+        case IDM_EXIT:       DestroyWindow(hWnd);    break;
+        default:             return DefWindowProc(hWnd, message, wParam, lParam);
         }
         break;
     }

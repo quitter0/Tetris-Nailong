@@ -6,6 +6,10 @@
 #define IDS_APP_TITLE                   103
 #define IDM_ABOUT                       104
 #define IDM_EXIT                        105
+#define IDD_ABOUTBOX                    100
+#define IDM_NEWGAME                     40001
+#define IDM_PAUSE                       40002
+#define IDM_DIFFICULTY                  40003
 #define IDI_TETRIS                      107
 #define IDI_SMALL                       108
 #define IDC_TETRIS                      109
