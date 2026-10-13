@@ -470,16 +470,152 @@ void DrawItemStatus(HDC hdc, int itemType, int duration)
 
 
 
+// —— 背景音乐：MCI 实现“真暂停/续播” + 手动循环 ——
+// PlaySound 只能整体停止/重播，无法“暂停后接着播”，故背景音乐改用 MCI。
+// 但 waveaudio 类型不支持 "play ... repeat"，循环只能靠计时器到点手动重启。
+
+static bool    g_bgmDeviceOpen = false;              // MCI 设备是否已打开
+static int     g_bgmLengthMs   = 0;                  // 背景音乐总时长（毫秒）
+static wchar_t g_bgmTempPath[MAX_PATH] = { 0 };      // 由资源解出的临时 wav 路径
+
+// 把 WAVE 资源解到临时文件（MCI 不能直接打开资源，只能给文件路径）
+static const wchar_t* ExtractBgmToTemp()
+{
+    if (g_bgmTempPath[0] != L'\0')
+        return g_bgmTempPath;   // 已解出过，复用同一份
+
+    HINSTANCE hInst = GetModuleHandle(NULL);
+    HRSRC hRes = FindResourceW(hInst, MAKEINTRESOURCE(IDR_WAV_BGM), L"WAVE");
+    if (!hRes) return NULL;
+    HGLOBAL hGlob = LoadResource(hInst, hRes);
+    if (!hGlob) return NULL;
+    const void* pData = LockResource(hGlob);
+    DWORD dwSize = SizeofResource(hInst, hRes);
+    if (!pData || dwSize == 0) return NULL;
+
+    wchar_t tempDir[MAX_PATH];
+    if (GetTempPathW(MAX_PATH, tempDir) == 0) return NULL;
+    wcscpy_s(g_bgmTempPath, MAX_PATH, tempDir);
+    wcscat_s(g_bgmTempPath, MAX_PATH, L"nailong_bgm.wav");
+
+    HANDLE hFile = CreateFileW(g_bgmTempPath, GENERIC_WRITE, 0, NULL,
+                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) { g_bgmTempPath[0] = L'\0'; return NULL; }
+    DWORD written = 0;
+    BOOL ok = WriteFile(hFile, pData, dwSize, &written, NULL);
+    CloseHandle(hFile);
+    if (!ok || written != dwSize) { g_bgmTempPath[0] = L'\0'; return NULL; }
+
+    return g_bgmTempPath;
+}
+
+// 打开 MCI 设备并读取时长；成功返回 true
+static bool OpenBgmDevice()
+{
+    if (g_bgmDeviceOpen) return true;
+    const wchar_t* path = ExtractBgmToTemp();
+    if (!path) return false;
+
+    wchar_t cmd[MAX_PATH + 64];
+    wsprintf(cmd, L"open \"%s\" type waveaudio alias bgm", path);
+    if (mciSendStringW(cmd, NULL, 0, NULL) != 0) return false;
+
+    g_bgmDeviceOpen = true;
+
+    wchar_t buf[64] = { 0 };
+    if (mciSendStringW(L"status bgm length", buf, 64, NULL) == 0)
+        g_bgmLengthMs = _wtoi(buf);
+    if (g_bgmLengthMs <= 0)
+        g_bgmLengthMs = 60000;   // 读不到时长时给个兜底，保证循环计时器仍能启动
+
+    return true;
+}
+
 void PlayBGM()
 {
-    // TODO(音效): 循环播放背景音乐
-    PlaySound(MAKEINTRESOURCE(IDR_WAV_BGM), GetModuleHandle(NULL), SND_RESOURCE | SND_LOOP | SND_ASYNC);
+    if (!OpenBgmDevice())
+    {
+        // 退路：MCI 不可用时退回 PlaySound 循环（有声音，但无法真暂停）
+        PlaySound(MAKEINTRESOURCE(IDR_WAV_BGM), GetModuleHandle(NULL),
+                  SND_RESOURCE | SND_LOOP | SND_ASYNC);
+        return;
+    }
+    mciSendStringW(L"seek bgm to start", NULL, 0, NULL);
+    mciSendStringW(L"play bgm", NULL, 0, NULL);
+    if (g_hWndMain)
+        SetTimer(g_hWndMain, TIMER_ID_BGM, g_bgmLengthMs, NULL);
+}
+
+void PauseBGM()
+{
+    if (!g_bgmDeviceOpen) return;
+    if (g_hWndMain)
+        KillTimer(g_hWndMain, TIMER_ID_BGM);
+    mciSendStringW(L"pause bgm", NULL, 0, NULL);
+}
+
+void ResumeBGM()
+{
+    if (!g_bgmDeviceOpen) return;
+    mciSendStringW(L"resume bgm", NULL, 0, NULL);
+
+    // 按“剩余时长”重新计时，保证循环点准确（总长 - 已播位置）
+    int remainMs = g_bgmLengthMs;
+    wchar_t buf[64] = { 0 };
+    if (mciSendStringW(L"status bgm position", buf, 64, NULL) == 0)
+    {
+        int pos = _wtoi(buf);
+        remainMs = g_bgmLengthMs - pos;
+    }
+    if (remainMs <= 0) remainMs = g_bgmLengthMs;
+    if (g_hWndMain)
+        SetTimer(g_hWndMain, TIMER_ID_BGM, remainMs, NULL);
+}
+
+void LoopBGMTimer()
+{
+    if (!g_bgmDeviceOpen) return;
+
+    // 计时器到点时可能已暂停/停止（KillTimer 拦不住队列里已投递的 WM_TIMER），
+    // 故先确认确实在播放中，再从头重播
+    wchar_t mode[32] = { 0 };
+    if (mciSendStringW(L"status bgm mode", mode, 32, NULL) != 0) return;
+    if (wcscmp(mode, L"playing") != 0) return;
+
+    mciSendStringW(L"seek bgm to start", NULL, 0, NULL);
+    mciSendStringW(L"play bgm", NULL, 0, NULL);
+    if (g_hWndMain)
+        SetTimer(g_hWndMain, TIMER_ID_BGM, g_bgmLengthMs, NULL);
 }
 
 void StopBGM()
 {
-    // TODO(音效): 停止背景音乐
-    PlaySound(NULL, NULL, 0);
+    if (g_hWndMain)
+        KillTimer(g_hWndMain, TIMER_ID_BGM);
+    if (g_bgmDeviceOpen)
+    {
+        mciSendStringW(L"stop bgm", NULL, 0, NULL);
+        mciSendStringW(L"seek bgm to start", NULL, 0, NULL);
+    }
+    else
+    {
+        PlaySound(NULL, NULL, 0);
+    }
+}
+
+void CloseBGM()
+{
+    StopBGM();                 // 先停当前播放并复位计时器
+    if (g_bgmDeviceOpen)
+    {
+        mciSendStringW(L"close bgm", NULL, 0, NULL);
+        g_bgmDeviceOpen = false;
+    }
+    if (g_bgmTempPath[0] != L'\0')
+    {
+        DeleteFileW(g_bgmTempPath);
+        g_bgmTempPath[0] = L'\0';
+    }
 }
 
 

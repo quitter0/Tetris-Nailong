@@ -345,15 +345,21 @@ static void StartNewGame(HWND hWnd)
     InvalidateRect(hWnd, NULL, FALSE);
 }
 
-// 暂停/继续切换（P 键与菜单“暂停/继续”共用）
+// 暂停/继续切换（P 键与菜单“暂停/继续”共用）；背景音乐同步暂停/续播
 static void TogglePause(HWND hWnd)
 {
     if (gameOverFlag) return;       // 结束后不进入暂停
     suspendFlag = !suspendFlag;
     if (suspendFlag)
+    {
         KillTimer(hWnd, TIMER_ID_DROP);
+        PauseBGM();                 // 音乐停在原位置（真暂停）
+    }
     else
+    {
         SetTimer(hWnd, TIMER_ID_DROP, dropInterval, NULL);
+        ResumeBGM();                // 从暂停处接着播，不回到开头
+    }
     InvalidateRect(hWnd, NULL, FALSE);
 }
 
@@ -392,6 +398,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         if (wParam == TIMER_ID_ITEM)
         {
             UpdateItem();
+        }
+        // 背景音乐循环计时器（MCI 不支持 repeat，到点手动重播）
+        if (wParam == TIMER_ID_BGM)
+        {
+            LoopBGMTimer();
         }
         break;
     }
@@ -689,7 +700,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_DESTROY:
     {
-        StopBGM();
+        CloseBGM();                      // 停 BGM、关 MCI 设备、删临时文件
         KillTimer(hWnd, TIMER_ID_DROP);
         KillTimer(hWnd, TIMER_ID_ITEM);
 

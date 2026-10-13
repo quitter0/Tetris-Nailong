@@ -85,6 +85,10 @@ void DestroyGameFonts();
 void PlayBGM();
 void StopBGM();
 void PlayEndSound();
+void PauseBGM();       // 真暂停（背景音乐停在原位置）
+void ResumeBGM();      // 从暂停位置续播
+void LoopBGMTimer();   // 循环计时器到点：从头重播并重新计时
+void CloseBGM();       // 关闭 MCI 设备并清理临时文件（退出时调用）
 
 // 难度选择函数声明
 int ShowStartDialog(HINSTANCE hInstance, HWND hParent);
@@ -113,6 +117,7 @@ extern HDC g_hBrickDC;       // 方块贴图复用的内存 DC（TetrisRender.cp
 // 计时器ID（主窗口与逻辑模块共用，统一定义在此）
 #define TIMER_ID_DROP   1
 #define TIMER_ID_ITEM   2
+#define TIMER_ID_BGM    3   // 背景音乐循环计时器（MCI 不支持 play repeat，手动循环）
 
 // 特殊方块类型宏定义
 #define BOMB_TYPE  14
