@@ -6,6 +6,17 @@
 
 // 对话框资源ID 见 resource.h，计时器ID 见 Tetris.h，此处不再重复定义
 
+// WM_PAINT 兼容位图跨帧复用：设计尺寸缓冲(700x945，尺寸恒定)只建一次；
+// 客户区缓冲按 cw×ch 缓存，仅尺寸变化时重建。均在 WM_DESTROY 统一释放。
+static HDC     g_paintMemDC    = NULL;
+static HBITMAP g_paintMemBmp   = NULL;
+static HBITMAP g_paintMemStock = NULL;
+static HDC     g_paintScrDC    = NULL;
+static HBITMAP g_paintScrBmp   = NULL;
+static HBITMAP g_paintScrStock = NULL;
+static int     g_paintScrW     = 0;
+static int     g_paintScrH     = 0;
+
 // 对话框过程声明
 INT_PTR CALLBACK DifficultyDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 
@@ -233,6 +244,9 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
         MessageBox(hWnd, TEXT("Game Over 图片加载失败！"), TEXT("错误"), MB_OK);
     }
 
+    // 创建全局缓存字体（全程序只创建一次，避免每帧重复 CreateFont）
+    CreateGameFonts();
+
     // 初始化游戏状态
     Restart();
 
@@ -287,27 +301,17 @@ static void LockCurrentBrick(HWND hWnd)
     }
     else
     {
-        // 普通方块的消行统计与连击
-        int linesCleared = 0;
-        for (int i = 0; i < nGameHeight; i++)
-        {
-            bool full = true;
-            for (int j = 0; j < nGameWidth; j++)
-            {
-                if (workRegion[i][j] == 0)
-                {
-                    full = false;
-                    break;
-                }
-            }
-            if (full) linesCleared++;
-        }
-        DeleteLines();
-
+        // 普通方块的消行与连击：DeleteLines 返回本次消行数
+        int linesCleared = DeleteLines();
         if (linesCleared > 0)
-            IncreaseCombo();
+        {
+            IncreaseCombo();                 // 本次消行即计入连击
+            tScore += comboCount * 50;       // 连击加成（自增后：第1次+50、第2次+100…）
+        }
         else
+        {
             ResetCombo();
+        }
     }
 
     if (GameOver())
@@ -364,7 +368,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 Restart();
                 SetTimer(hWnd, TIMER_ID_DROP, dropInterval, NULL);
                 PlayBGM();
-                InvalidateRect(hWnd, NULL, TRUE);
+                InvalidateRect(hWnd, NULL, FALSE);
             }
             break;
         }
@@ -440,15 +444,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             InvalidateRect(hWnd, NULL, FALSE);
             break;
 
-            // 使用道具（数字键1-3）
+            // 使用道具（数字键1-3）——立即重绘，避免清行/状态提示要等下次 timer
         case '1':
             ActivateItem(ITEM_CLEAR_BOTTOM);
+            InvalidateRect(hWnd, NULL, FALSE);
             break;
         case '2':
             ActivateItem(ITEM_SLOW);
+            InvalidateRect(hWnd, NULL, FALSE);
             break;
         case '3':
             ActivateItem(ITEM_DOUBLE_SCORE);
+            InvalidateRect(hWnd, NULL, FALSE);
             break;
         }
         break;
@@ -463,10 +470,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
 
-        // 创建内存双缓冲，避免闪烁
-        HDC hdcMem = CreateCompatibleDC(hdc);
-        HBITMAP hbmMem = CreateCompatibleBitmap(hdc, nWidth * GRID, nHeight * GRID);
-        HBITMAP hbmOld = (HBITMAP)SelectObject(hdcMem, hbmMem);
+        // 设计尺寸(700x945)离屏缓冲：尺寸恒定，仅首次创建，跨帧复用
+        if (g_paintMemDC == NULL)
+        {
+            g_paintMemDC = CreateCompatibleDC(hdc);
+            g_paintMemBmp = CreateCompatibleBitmap(hdc, nWidth * GRID, nHeight * GRID);
+            g_paintMemStock = (HBITMAP)SelectObject(g_paintMemDC, g_paintMemBmp);
+        }
+        HDC hdcMem = g_paintMemDC;
 
         // 填充背景
         HBRUSH hbrBkg = CreateSolidBrush(RGB(30, 30, 30));
@@ -483,25 +494,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 
         // ----- 绘制操作说明提示 -----
-// 设置文本属性
+        // 使用全局缓存字体（g_hFont28Bold/g_hFontInstrBody/g_hFontInstrTitle），避免每帧重复 CreateFont
         SetBkMode(hdcMem, TRANSPARENT);
 
-
-        HFONT hFontTitle = CreateFont(
-            28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"微软雅黑");
-        HFONT hOldFontTitle = (HFONT)SelectObject(hdcMem, hFontTitle);
-        SetTextColor(hdcMem, RGB(0, 0, 0));  
+        HFONT hOldFontText = (HFONT)SelectObject(hdcMem, g_hFont28Bold);
+        SetTextColor(hdcMem, RGB(0, 0, 0));
         TextOut(hdcMem, nWidth* GRID - 170, 300, L"操作说明", 5);
-        SelectObject(hdcMem, hOldFontTitle);
-        DeleteObject(hFontTitle);
 
-        HFONT hFontText = CreateFont(
-            18, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"微软雅黑");
-        HFONT hOldFontText = (HFONT)SelectObject(hdcMem, hFontText);
+        SelectObject(hdcMem, g_hFontInstrBody);
 
         int textX = nWidth * GRID - 170;
         int textY = 340;
@@ -563,18 +563,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         // 道具说明标题
         textY += 10;
-        HFONT hFontItemTitle = CreateFont(
-            18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"微软雅黑");
-        HFONT hOldFontItemTitle = (HFONT)SelectObject(hdcMem, hFontItemTitle);
+        SelectObject(hdcMem, g_hFontInstrTitle);
         SetTextColor(hdcMem, RGB(0, 0, 0));
         TextOut(hdcMem, textX, textY, L"道具快捷键", 6);
-        SelectObject(hdcMem, hOldFontItemTitle);
-        DeleteObject(hFontItemTitle);
 
         // 道具说明内容
-        SelectObject(hdcMem, hFontText);
+        SelectObject(hdcMem, g_hFontInstrBody);
         textY += lineHeight;
         SetTextColor(hdcMem, RGB(0, 0, 0));
         TextOut(hdcMem, textX, textY, L"1", 1);
@@ -595,7 +589,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         // 恢复旧字体
         SelectObject(hdcMem, hOldFontText);
-        DeleteObject(hFontText);
         // ----- 操作说明绘制结束 -----
 
 
@@ -618,9 +611,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         // 先在客户区大小的离屏缓冲里合成（黑边 + 缩放后的画面），再一次性贴到屏幕，
         // 避免分两步直接绘制到窗口DC导致的闪烁
-        HDC hdcScreen = CreateCompatibleDC(hdc);
-        HBITMAP hbmScreen = CreateCompatibleBitmap(hdc, cw, ch);
-        HBITMAP hbmScreenOld = (HBITMAP)SelectObject(hdcScreen, hbmScreen);
+        // 客户区离屏缓冲：按 cw×ch 缓存，仅尺寸变化时重建
+        if (g_paintScrDC == NULL || g_paintScrW != cw || g_paintScrH != ch)
+        {
+            if (g_paintScrDC)
+            {
+                SelectObject(g_paintScrDC, g_paintScrStock);
+                DeleteObject(g_paintScrBmp);
+                DeleteDC(g_paintScrDC);
+            }
+            g_paintScrDC = CreateCompatibleDC(hdc);
+            g_paintScrBmp = CreateCompatibleBitmap(hdc, cw, ch);
+            g_paintScrStock = (HBITMAP)SelectObject(g_paintScrDC, g_paintScrBmp);
+            g_paintScrW = cw;
+            g_paintScrH = ch;
+        }
+        HDC hdcScreen = g_paintScrDC;
 
         // 铺底（窗口比例与画面不一致时四周留黑边）
         HBRUSH hbrEdge = CreateSolidBrush(RGB(0, 0, 0));
@@ -635,14 +641,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         // 合成完成，单次拷贝到屏幕
         BitBlt(hdc, 0, 0, cw, ch, hdcScreen, 0, 0, SRCCOPY);
 
-        SelectObject(hdcScreen, hbmScreenOld);
-        DeleteObject(hbmScreen);
-        DeleteDC(hdcScreen);
-
-        SelectObject(hdcMem, hbmOld);
-        DeleteObject(hbmMem);
-        DeleteDC(hdcMem);
-
+        // 离屏缓冲跨帧复用，不在此删除，统一在 WM_DESTROY 释放
         EndPaint(hWnd, &ps);
         break;
     }
@@ -667,6 +666,35 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             DeleteObject(g_hEndBitmap);
             g_hEndBitmap = NULL;
         }
+
+        // 释放缓存字体
+        DestroyGameFonts();
+
+        // 释放方块贴图复用的内存 DC
+        if (g_hBrickDC)
+        {
+            DeleteDC(g_hBrickDC);
+            g_hBrickDC = NULL;
+        }
+
+        // 释放 WM_PAINT 跨帧复用的离屏缓冲
+        if (g_paintMemDC)
+        {
+            SelectObject(g_paintMemDC, g_paintMemStock);
+            DeleteObject(g_paintMemBmp);
+            DeleteDC(g_paintMemDC);
+            g_paintMemDC = NULL;
+            g_paintMemBmp = NULL;
+        }
+        if (g_paintScrDC)
+        {
+            SelectObject(g_paintScrDC, g_paintScrStock);
+            DeleteObject(g_paintScrBmp);
+            DeleteDC(g_paintScrDC);
+            g_paintScrDC = NULL;
+            g_paintScrBmp = NULL;
+        }
+
         PostQuitMessage(0);
         break;
     }

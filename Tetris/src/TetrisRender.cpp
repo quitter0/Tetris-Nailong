@@ -5,9 +5,50 @@
 #include <mmsystem.h>
 #pragma comment(lib, "winmm.lib")
 
+// 透明混合（AlphaBlend）所需的库
+#pragma comment(lib, "msimg32.lib")
+
+// 背景图不透明度：0=全透明(只见底色)，255=完全不透明(原样)。
+// 调小可让背景更淡、更突显前方方块；调大则背景更清晰。
+#define BACKGROUND_ALPHA 150
+
 // 贴图相关全局变量
 HBITMAP g_hBrickBitmaps[15] = { NULL };   // 每种方块的贴图（最多15种）
 bool g_useBitmap = false;                 // 是否启用贴图模式（否则用纯色）
+
+// 缓存字体：全程序只创建一次（CreateGameFonts），避免每帧重复 CreateFont
+HFONT g_hFont28Bold = NULL;
+HFONT g_hFontInstrBody = NULL;    // 操作说明正文（22 半粗）
+HFONT g_hFontInstrTitle = NULL;   // 道具说明标题（22 粗体）
+HFONT g_hFont80Bold = NULL;
+
+// 方块贴图 blit 复用的内存 DC（避免每个格子都 CreateCompatibleDC）
+HDC g_hBrickDC = NULL;
+
+// 创建/释放缓存字体
+void CreateGameFonts()
+{
+    g_hFont28Bold = CreateFont(28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"微软雅黑");
+    g_hFontInstrBody = CreateFont(22, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"微软雅黑");
+    g_hFontInstrTitle = CreateFont(22, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"微软雅黑");
+    g_hFont80Bold = CreateFont(80, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"微软雅黑");
+}
+
+void DestroyGameFonts()
+{
+    if (g_hFont28Bold) { DeleteObject(g_hFont28Bold); g_hFont28Bold = NULL; }
+    if (g_hFontInstrBody) { DeleteObject(g_hFontInstrBody); g_hFontInstrBody = NULL; }
+    if (g_hFontInstrTitle) { DeleteObject(g_hFontInstrTitle); g_hFontInstrTitle = NULL; }
+    if (g_hFont80Bold) { DeleteObject(g_hFont80Bold); g_hFont80Bold = NULL; }
+}
 
 // 音效资源ID（需在资源文件中对应定义）
 #define IDR_WAV_BGM           201
@@ -38,6 +79,16 @@ void TDrawScreen(HDC hdc, HWND hWnd)
     // 检查全局变量 g_hBackgroundBitmap 是否有效
     if (g_hBackgroundBitmap != NULL)
     {
+        // 先铺一层深色底，再让背景图以半透明方式叠加，避免背景过亮/过花影响观察前方方块
+        HBRUSH hbrBase = CreateSolidBrush(RGB(30, 30, 30));
+        RECT rcAll;
+        rcAll.left = 0;
+        rcAll.top = 0;
+        rcAll.right = designW;
+        rcAll.bottom = designH;
+        FillRect(dcMem, &rcAll, hbrBase);
+        DeleteObject(hbrBase);
+
         // 如果有背景图，使用它（按位图实际尺寸拉伸铺满客户区）
         HDC hdcBg = CreateCompatibleDC(dcMem);
         HBITMAP hOldBg = (HBITMAP)SelectObject(hdcBg, g_hBackgroundBitmap);
@@ -46,8 +97,14 @@ void TDrawScreen(HDC hdc, HWND hWnd)
         // 大幅缩小时用 HALFTONE 采样，避免默认 COLORONCOLOR 丢像素导致的锯齿/摩尔纹
         int oldStretchMode = SetStretchBltMode(dcMem, HALFTONE);
         SetBrushOrgEx(dcMem, 0, 0, NULL);
-        StretchBlt(dcMem, 0, 0, designW, designH,
-            hdcBg, 0, 0, bgBm.bmWidth, bgBm.bmHeight, SRCCOPY);
+        // SourceConstantAlpha 对整张图统一降低不透明度（与底色混合）
+        BLENDFUNCTION bf;
+        bf.BlendOp = AC_SRC_OVER;
+        bf.BlendFlags = 0;
+        bf.SourceConstantAlpha = BACKGROUND_ALPHA;
+        bf.AlphaFormat = 0;
+        AlphaBlend(dcMem, 0, 0, designW, designH,
+            hdcBg, 0, 0, bgBm.bmWidth, bgBm.bmHeight, bf);
         SetStretchBltMode(dcMem, oldStretchMode);
         SelectObject(hdcBg, hOldBg);
         DeleteDC(hdcBg);
@@ -184,12 +241,11 @@ void TDrawScreen(HDC hdc, HWND hWnd)
         }
     }
 
-    HFONT g = CreateFont(28, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, 0, 0, L"微软雅黑");
-    HFONT h = (HFONT)SelectObject(dcMem, g);
-    SetBkMode(dcMem, TRANSPARENT); // 改为 dcMem
-    SetTextColor(dcMem, RGB(0, 0, 0)); // 改为 dcMem
-    TextOut(dcMem, previewStartX + 10, previewStartY - 20, L"Next:", 5); // 改为 dcMem    SelectObject(dcMem, h);
-    DeleteObject(g);
+    HFONT h = (HFONT)SelectObject(dcMem, g_hFont28Bold);
+    SetBkMode(dcMem, TRANSPARENT);
+    SetTextColor(dcMem, RGB(0, 0, 0));
+    TextOut(dcMem, previewStartX + 10, previewStartY - 20, L"Next:", 5);
+    SelectObject(dcMem, h);
 
  
 
@@ -198,8 +254,7 @@ void TDrawScreen(HDC hdc, HWND hWnd)
     // --- 绘制逻辑结束 ---
 
         // 5. 显示得分
-    HFONT f = CreateFont(28, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, 0, 0, L"微软雅黑");
-    HFONT old = (HFONT)SelectObject(dcMem, f);
+    HFONT old = (HFONT)SelectObject(dcMem, g_hFont28Bold);
 
     wchar_t scoreText[64];
     wsprintf(scoreText, L"Score: %d", tScore);
@@ -214,7 +269,6 @@ void TDrawScreen(HDC hdc, HWND hWnd)
     TextOut(dcMem, startX + 180, startY - 30, bestText, wcslen(bestText));
 
     SelectObject(dcMem, old);
-    DeleteObject(f);
     // 6. 显示连击数
     DrawCombo(dcMem, comboCount);
 
@@ -222,26 +276,8 @@ void TDrawScreen(HDC hdc, HWND hWnd)
     DrawItemStatus(dcMem, currentItem, itemDuration);
 
     // 8. 游戏结束标志 + 暂停标志
-   // 第一个数字 = 字体高度（改这个调大小）
-    HFONT hBigFont = CreateFont(
-        80,    // 【字体大小】高度，数字越大字越大
-        0,     // 宽度自适应
-        0,
-        0,
-        FW_BOLD, // 加粗
-        FALSE,
-        FALSE,
-        FALSE,
-        DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS,
-        DEFAULT_QUALITY,
-        DEFAULT_PITCH | FF_DONTCARE,
-        L"微软雅黑"
-    );
-
-    // 应用字体
-    HFONT hOldFont = (HFONT)SelectObject(dcMem, hBigFont);
+    // 应用字体（80 粗体：结束 / 暂停大字）
+    HFONT hOldFont = (HFONT)SelectObject(dcMem, g_hFont80Bold);
 
 
     // 游戏结束
@@ -296,9 +332,8 @@ void TDrawScreen(HDC hdc, HWND hWnd)
 
 
 
-        // 释放字体
+    // 还原字体
     SelectObject(dcMem, hOldFont);
-    DeleteObject(hBigFont);
 
 
 
@@ -387,12 +422,19 @@ void DrawBrickByBitmap(HDC hdc, int type, int x, int y, int size)
 {
     if (type < 0 || type >= 15 || g_hBrickBitmaps[type] == NULL)
         return;
-    HDC memDC = CreateCompatibleDC(hdc);
-    SelectObject(memDC, g_hBrickBitmaps[type]);
+
+    // 复用一个全局内存 DC，避免每个格子都新建 DC（每帧最多数百次）
+    if (g_hBrickDC == NULL)
+    {
+        HDC hdcScreen = GetDC(NULL);
+        g_hBrickDC = CreateCompatibleDC(hdcScreen);
+        ReleaseDC(NULL, hdcScreen);
+    }
+    HBITMAP hOld = (HBITMAP)SelectObject(g_hBrickDC, g_hBrickBitmaps[type]);
     BITMAP bm;
     GetObject(g_hBrickBitmaps[type], sizeof(bm), &bm);
-    StretchBlt(hdc, x, y, size, size, memDC, 0, 0, bm.bmWidth, bm.bmHeight, SRCCOPY);
-    DeleteDC(memDC);
+    StretchBlt(hdc, x, y, size, size, g_hBrickDC, 0, 0, bm.bmWidth, bm.bmHeight, SRCCOPY);
+    SelectObject(g_hBrickDC, hOld);
 }
 
 void DrawCombo(HDC hdc, int combo)
@@ -401,9 +443,11 @@ void DrawCombo(HDC hdc, int combo)
     {
         wchar_t comboText[64];
         wsprintf(comboText, L"Combo: x%d", combo);
+        HFONT hOld = (HFONT)SelectObject(hdc, g_hFont28Bold);   // 与 Score 同号（28）
         SetTextColor(hdc, RGB(255, 0, 0));
         SetBkMode(hdc, TRANSPARENT);
         TextOut(hdc, 100, 850, comboText, wcslen(comboText));
+        SelectObject(hdc, hOld);
     }
 }
 

@@ -329,8 +329,8 @@ void DeleteOneLine(int number)
     }
 }
 
-// ---------- 消行逻辑 ----------
-void DeleteLines()
+// ---------- 消行逻辑（返回本次消除的行数）----------
+int DeleteLines()
 {
     int linesCleared = 0;
 
@@ -355,7 +355,7 @@ void DeleteLines()
         }
     }
 
-    // 计分逻辑
+    // 基础分计分（连击加成由调用方按自增后的 comboCount 处理，见 LockCurrentBrick）
     if (linesCleared > 0)
     {
         // 基础分：1行100, 2行200, 3行400, 4行800
@@ -372,11 +372,10 @@ void DeleteLines()
         if (currentItem == ITEM_DOUBLE_SCORE)
             baseScore *= 2;
 
-        // 连击加成
-        baseScore += comboCount * 50;
-
         tScore += baseScore;
     }
+
+    return linesCleared;
 }
 
 // ---------- 游戏结束判断 ----------
@@ -441,9 +440,9 @@ void Restart()
     nType = rand() % BOMB_TYPE;
     state = 0;
 
-    // 初始位置
+    // 初始位置（与 Fixing() 的出块高度保持一致：从顶部上方出现）
     point.x = nGameWidth / 2 - 2;
-    point.y = 0;
+    point.y = -2;
 
     // 确保初始方块合法
     if (!IsPositionValid(type, state, point.y, point.x))
@@ -574,7 +573,7 @@ void BombExplode(int row, int col)
         }
     }
 
-    // 2. 紧凑排列所有行 —— 从下往上，非空行沉底
+    // 2. 紧凑排列所有行 —— 从下往上，非空行整体沉底（整空行被跳过，等价于消行后上方整体下落）
     int writeRow = nGameHeight - 1;   // 下一个要写入的行（从最底部开始）
     for (int readRow = nGameHeight - 1; readRow >= 0; readRow--)
     {
@@ -591,7 +590,7 @@ void BombExplode(int row, int col)
 
         if (hasBlock)
         {
-            // 如果读行与写行不同，把读行复制到写行
+            // 如果读行与写行不同，把读行整行复制到写行
             if (readRow != writeRow)
             {
                 for (int j = 0; j < nGameWidth; j++)

@@ -47,7 +47,7 @@ void Rotate();
 void DropDown();
 void Fixing();
 void DeleteOneLine(int number);
-void DeleteLines();
+int DeleteLines();
 bool GameOver();
 void ComputeTarget();
 void Restart();
@@ -73,6 +73,14 @@ void DrawBrickByBitmap(HDC hdc, int type, int x, int y, int size);
 void DrawCombo(HDC hdc, int combo);
 void DrawItemStatus(HDC hdc, int itemType, int duration);
 
+// 缓存字体（全程序只创建一次，避免每帧重复 CreateFont）
+extern HFONT g_hFont28Bold;   // 28 粗体：标题 / 得分 / Next
+extern HFONT g_hFontInstrBody;    // 操作说明正文（22 半粗）
+extern HFONT g_hFontInstrTitle;   // 道具说明标题（22 粗体）
+extern HFONT g_hFont80Bold;   // 80 粗体：结束 / 暂停大字
+void CreateGameFonts();
+void DestroyGameFonts();
+
 // 音效函数声明
 void PlayBGM();
 void StopBGM();
@@ -94,6 +102,7 @@ extern int dropInterval;
 extern HBITMAP g_hBrickBitmaps[];
 extern bool g_useBitmap;
 extern HWND g_hWndMain;
+extern HDC g_hBrickDC;       // 方块贴图复用的内存 DC（TetrisRender.cpp 定义，WM_DESTROY 释放）
 
 // 道具类型宏定义（移到头文件，让所有文件都能访问）
 #define ITEM_NONE            0
