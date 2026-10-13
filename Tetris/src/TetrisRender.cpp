@@ -138,10 +138,10 @@ void TDrawScreen(HDC hdc, HWND hWnd)
             int value = workRegion[i][j];
             if (value != 0)
             {
-                // 绘制已固定的方块（value 对应方块类型0~14）
+                // 绘制已固定的方块（workRegion 存的是 type+1，即 1~15，贴图索引为 value-1）
                 int x = startX + j * blockSize;
                 int y = startY + i * blockSize;
-                if (g_useBitmap && value >= 0 && value < 15 && g_hBrickBitmaps[value] != NULL)
+                if (g_useBitmap && value >= 1 && value <= 15 && g_hBrickBitmaps[value - 1] != NULL)
                     DrawBrickByBitmap(dcMem, value - 1, x, y, blockSize);
                 else
                 {
@@ -285,7 +285,6 @@ void TDrawScreen(HDC hdc, HWND hWnd)
     {
         SetTextColor(dcMem, RGB(0, 0, 255));
         TextOut(dcMem, startX + 0, startY + 100, L"按“R”重新开始", 8);
-        PlayEndSound();
 
         // 1. 创建兼容DC
         HDC hdcMemEnd = CreateCompatibleDC(dcMem); // 以主内存DC为模板

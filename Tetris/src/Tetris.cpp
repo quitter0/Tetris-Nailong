@@ -319,6 +319,7 @@ static void LockCurrentBrick(HWND hWnd)
         gameOverFlag = true;
         KillTimer(hWnd, TIMER_ID_DROP);
         StopBGM();
+        PlayEndSound();          // 结束音效只响一次（原先写在绘制函数里，会随重绘重播）
         SaveHighScore();
     }
 
@@ -652,8 +653,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         KillTimer(hWnd, TIMER_ID_DROP);
         KillTimer(hWnd, TIMER_ID_ITEM);
 
-        // 释放贴图资源
-        for (int i = 0; i < 10; i++)
+        // 释放贴图资源（g_hBrickBitmaps 共 15 项，须全部释放）
+        for (int i = 0; i < 15; i++)
         {
             if (g_hBrickBitmaps[i])
             {
@@ -665,6 +666,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         if (g_hEndBitmap) {
             DeleteObject(g_hEndBitmap);
             g_hEndBitmap = NULL;
+        }
+        if (g_hBackgroundBitmap) {
+            DeleteObject(g_hBackgroundBitmap);
+            g_hBackgroundBitmap = NULL;
         }
 
         // 释放缓存字体

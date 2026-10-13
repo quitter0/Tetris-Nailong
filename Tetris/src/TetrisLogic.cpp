@@ -429,11 +429,11 @@ void Restart()
     // 应用难度
     ApplyDifficulty();
 
+    // 初始化随机种子（必须在 GenerateInitialRows 之前，否则初始行用未播种序列、每次固定）
+    srand((unsigned int)time(NULL));
+
     // 生成初始随机行
     GenerateInitialRows();
-
-    // 初始化随机种子
-    srand((unsigned int)time(NULL));
 
     // 生成方块
     type = rand() % BOMB_TYPE;   // 0 到 13，不包含炸弹
